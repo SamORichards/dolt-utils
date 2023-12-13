@@ -10,7 +10,7 @@ class DoltRepo:
         self.repo_name = repo_name
         self.branch = branch
         self.tmp_folder = tempfile.TemporaryDirectory()
-        self.dolt = Dolt.clone(repo_name, self.tmp_folder, branch=branch)
+        self.dolt = Dolt.clone(repo_name, self.tmp_folder.name, branch=branch)
         atexit.register(self.cleanup)
 
     def cleanup(self: Self) -> None:
