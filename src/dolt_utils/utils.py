@@ -88,10 +88,6 @@ class DoltRepo:
             self.get_csv(table_name, file)
             if add_to_gitignore:
                 with open(os.path.join(base_path, ".gitignore"), "r+") as f:
-                    # Check if already in gitignore
-                    if file_name not in f.read():
-                        f.write(file_name + "\n")
                     # Check if csv already in gitignore
-                    f.seek(0)
                     if csv_name not in f.read():
                         f.write(csv_name + "\n")
