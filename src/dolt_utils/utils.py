@@ -1,3 +1,4 @@
+import re
 from typing import Optional, Self
 from doltcli import Dolt
 import os
@@ -5,6 +6,7 @@ import tempfile
 import atexit
 from logging import basicConfig, getLogger
 import random
+import pandas as pd
 
 basicConfig(level="INFO")
 logger = getLogger(__name__)
@@ -49,6 +51,26 @@ class DoltRepo:
         return self.dolt.ls()
         # pass
 
+    def get_bool_cols(self: Self, table_name: str) -> list:
+        tmp_loc = tempfile.TemporaryDirectory()
+        file_path = os.path.join(tmp_loc.name, "temp_schema.sql")
+        self.dolt.schema_export(table_name, filename=file_path)
+        with open(file_path, "r") as f:
+            matches = re.findall(r"`(\w+)` tinyint\(1\)", f.read())
+        os.remove(file_path)
+        return matches
+
+    def convert_cols(self: Self, table_name: str, file_path: str) -> None:
+        # Load in the csv
+        df = pd.read_csv(file_path)
+        # Get the boolean columns
+        bool_cols = self.get_bool_cols(table_name)
+        # Convert the columns
+        for col in bool_cols:
+            df[col] = df[col].astype(bool)
+        # Save the csv
+        df.to_csv(file_path, index=False)
+
     def get_csv(self: Self, table_name: str, save_path: str) -> None:
         # If save_path is relative, make it absolute
         if not os.path.isabs(save_path):
@@ -57,6 +79,7 @@ class DoltRepo:
         save_path = save_path + ".csv"
         logger.info(f"Saving {table_name} to {save_path}")
         self.dolt.table_export(table_name, save_path, force=True, file_type="csv")
+        self.convert_cols(table_name, save_path)
 
     def __clean_file_name(self: Self, file_name: str) -> str:
         if file_name.endswith(".csv"):

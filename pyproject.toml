@@ -16,4 +16,5 @@ classifiers = [
 ]
 dependencies = [
     "doltcli >= 0.2.1",
+    "pandas >= 2.0.0",
 ]
