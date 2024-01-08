@@ -6,10 +6,17 @@ import tempfile
 import atexit
 from logging import basicConfig, getLogger
 import random
+from enum import Enum
 import pandas as pd
 
 basicConfig(level="INFO")
 logger = getLogger(__name__)
+
+
+class InsertMode(Enum):
+    CREATE = (True, False, False)
+    UPDATE = (False, True, False)
+    REPLACE = (False, False, True)
 
 
 class DoltRepo:
@@ -34,7 +41,7 @@ class DoltRepo:
         else:
             self.tmp_folder = tempfile.TemporaryDirectory()
             self.dolt = Dolt.clone(repo_name, self.tmp_folder.name, branch=branch)
-            atexit.register(self.cleanup)
+            atexit.register(self.__cleanup)
 
         if sha:
             random_branch_name = f"branch-{random.randint(0, 1000000)}"
@@ -44,14 +51,14 @@ class DoltRepo:
             self.dolt.checkout(branch=branch)
             self.dolt.pull()
 
-    def cleanup(self: Self) -> None:
+    def __cleanup(self: Self) -> None:
         self.tmp_folder.cleanup()
 
     def ls(self: Self):
         return self.dolt.ls()
         # pass
 
-    def get_bool_cols(self: Self, table_name: str) -> list:
+    def __get_bool_cols(self: Self, table_name: str) -> list:
         tmp_loc = tempfile.TemporaryDirectory()
         file_path = os.path.join(tmp_loc.name, "temp_schema.sql")
         self.dolt.schema_export(table_name, filename=file_path)
@@ -60,11 +67,11 @@ class DoltRepo:
         os.remove(file_path)
         return matches
 
-    def convert_cols(self: Self, table_name: str, file_path: str) -> None:
+    def __convert_cols(self: Self, table_name: str, file_path: str) -> None:
         # Load in the csv
         df = pd.read_csv(file_path)
         # Get the boolean columns
-        bool_cols = self.get_bool_cols(table_name)
+        bool_cols = self.__get_bool_cols(table_name)
         # Convert the columns
         for col in bool_cols:
             df[col] = df[col].astype(bool)
@@ -79,7 +86,7 @@ class DoltRepo:
         save_path = save_path + ".csv"
         logger.info(f"Saving {table_name} to {save_path}")
         self.dolt.table_export(table_name, save_path, force=True, file_type="csv")
-        self.convert_cols(table_name, save_path)
+        self.__convert_cols(table_name, save_path)
 
     def __clean_file_name(self: Self, file_name: str) -> str:
         if file_name.endswith(".csv"):
@@ -114,3 +121,31 @@ class DoltRepo:
                     # Check if csv already in gitignore
                     if csv_name not in f.read():
                         f.write(csv_name + "\n")
+
+    def write_df(
+        self: Self, df: pd.DataFrame, insert_mode: InsertMode, table_name: str, primary_keys: list[str] = []
+    ) -> None:
+        if insert_mode == InsertMode.CREATE and len(primary_keys) == 0:
+            raise ValueError("Must specify primary keys if creating table")
+        elif insert_mode != InsertMode.CREATE and len(primary_keys) > 0:
+            raise ValueError("Cannot specify primary keys if not creating table")
+        if len(primary_keys) > 0:
+            for key in primary_keys:
+                if key not in df.columns:
+                    raise ValueError(f"Primary key {key} not in dataframe columns")
+        primary_keys = primary_keys if len(primary_keys) > 0 else None
+        tmp_loc = tempfile.TemporaryDirectory()
+        file_path = os.path.join(tmp_loc.name, "temp.csv")
+        df.to_csv(file_path, index=False)
+        create, update, replace = insert_mode.value
+        self.dolt.table_import(
+            table_name,
+            file_path,
+            file_type="csv",
+            create_table=create,
+            update_table=update,
+            replace_table=replace,
+            pk=primary_keys,
+        )
+        self.dolt.add(table_name)
+        self.dolt.commit(f"Update {table_name}")

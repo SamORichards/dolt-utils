@@ -1,1 +1,1 @@
-from .utils import DoltRepo
+from .utils import DoltRepo, InsertMode
